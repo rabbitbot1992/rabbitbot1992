@@ -1,6 +1,54 @@
 const { ChannelType } = require('discord.js');
 const { test, eq, deepEq } = require('./_harness');
-const { removeGuild } = require('../../src/systems/serverStats');
+const { refreshGuild, removeGuild } = require('../../src/systems/serverStats');
+
+test('refreshGuild removes managed channels when serverStats is disabled', async () => {
+  const GuildConfig = require('../../src/database/models/GuildConfig');
+  const originalFindOne = GuildConfig.findOne;
+  const originalUpdateOne = GuildConfig.updateOne;
+  const { invalidateGuildConfig } = require('../../src/systems/guildConfigService');
+  const guildId = '123456789012345679';
+  const channels = new Map();
+  let update = null;
+  const config = {
+    features: {
+      serverStats: {
+        enabled: false,
+        memberChannelId: 'members-off',
+        joinsChannelId: 'joins-off',
+        leavesChannelId: 'leaves-off',
+        categoryId: 'stats-off'
+      }
+    }
+  };
+  GuildConfig.findOne = () => ({ lean: async () => config });
+  GuildConfig.updateOne = async (filter, value) => { update = { filter, value }; };
+  ['members-off', 'joins-off', 'leaves-off', 'stats-off'].forEach((id) => {
+    channels.set(id, { id, delete: async () => channels.delete(id) });
+  });
+  const guild = {
+    id: guildId,
+    channels: {
+      cache: {
+        get: (id) => channels.get(id) || null,
+        filter: () => []
+      },
+      fetch: async () => null
+    }
+  };
+
+  try {
+    invalidateGuildConfig(guildId);
+    const result = await refreshGuild(null, guild);
+    eq(result.skipped, true);
+    eq(channels.size, 0);
+    eq(update.filter.guildId, guildId);
+  } finally {
+    invalidateGuildConfig(guildId);
+    GuildConfig.findOne = originalFindOne;
+    GuildConfig.updateOne = originalUpdateOne;
+  }
+});
 
 test('removeGuild preserves manual channels and deletes managed stats channels', async () => {
   const modelPath = require.resolve('../../src/database/models/GuildConfig');

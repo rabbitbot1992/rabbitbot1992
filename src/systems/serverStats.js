@@ -184,7 +184,10 @@ async function refreshGuild(client, guild, opts) {
 
   const force = !!(opts && opts.force);
   const cfg = await getFeature(guild.id, 'serverStats');
-  if (!force && cfg.enabled !== true) return { ok: true, skipped: true };
+  if (!force && cfg.enabled !== true) {
+    await removeGuild(guild, cfg);
+    return { ok: true, skipped: true };
+  }
   const lang = await getGuildLang(guild.id).catch(() => 'pt');
   const showMembers = cfg.showMembers !== false;
   const showJoins = cfg.showJoins !== false;
